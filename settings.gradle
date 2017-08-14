@@ -1,0 +1,12 @@
+//include 'core'
+include 'plugin'
+include 'grails-plugin-gorm-graphql'
+//include 'docs'
+
+//include 'examples/grails-test-app'
+//include 'examples/grails-docs-app'
+
+rootProject.name = 'spring-security-graphql-root'
+
+//findProject(':core').name = 'gorm-graphql'
+findProject(':plugin').name = 'spring-security-graphql'
