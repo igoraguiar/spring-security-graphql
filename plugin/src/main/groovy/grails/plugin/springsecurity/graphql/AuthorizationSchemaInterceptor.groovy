@@ -5,7 +5,7 @@ import grails.plugin.springsecurity.graphql.authorization.CheckPoint
 import grails.plugin.springsecurity.graphql.authorization.CheckPointInstructions
 import grails.plugin.springsecurity.graphql.authorization.Guard
 import grails.plugin.springsecurity.graphql.authorization.GuardInstructions
-import grails.plugin.springsecurity.graphql.authorization.annotation.Secured
+import grails.plugin.springsecurity.graphql.authorization.annotation.GqlSecured
 import grails.plugin.springsecurity.graphql.authorization.annotation.Operation
 import grails.plugin.springsecurity.graphql.authorization.instructions.ClosureInstruction
 import grails.plugin.springsecurity.graphql.authorization.instructions.SpelInstruction
@@ -17,6 +17,7 @@ import org.grails.gorm.graphql.fetcher.GraphQLDataFetcherType
 import org.grails.gorm.graphql.interceptor.GraphQLSchemaInterceptor
 import org.grails.gorm.graphql.interceptor.manager.GraphQLInterceptorManager
 import org.grails.gorm.graphql.plugin.GraphQLPostProcessor
+import org.grails.gorm.graphql.types.GraphQLTypeManager
 import org.springframework.security.access.annotation.Secured as SpringSecured
 
 import java.lang.annotation.Annotation
@@ -58,7 +59,7 @@ class AuthorizationSchemaInterceptor extends GraphQLPostProcessor implements Gra
         if(!annotation){
             Class javaClass = entity.javaClass
             
-            annotation = javaClass.getAnnotation(Secured)
+            annotation = javaClass.getAnnotation(GqlSecured)
             if(!annotation){
                 annotation = getSecuredAnnotation(javaClass)
             }
@@ -70,7 +71,7 @@ class AuthorizationSchemaInterceptor extends GraphQLPostProcessor implements Gra
     }
     
     void addAnnotationInstructions(Annotation annotation,PersistentEntity entity,CheckPointInstructions instructions){
-        if(annotation instanceof Secured){
+        if(annotation instanceof GqlSecured){
             Operation operation = findOperation(annotation,entity,instructions)
             if(operation){
                 if(Operation != operation.closure()){
@@ -81,7 +82,7 @@ class AuthorizationSchemaInterceptor extends GraphQLPostProcessor implements Gra
                 }
             }
             else{
-                if(Secured != annotation.closure()){
+                if(GqlSecured != annotation.closure()){
                     instructions.addInstruction(new ClosureInstruction(annotation.closure()))
                 }
                 else{
@@ -109,15 +110,14 @@ class AuthorizationSchemaInterceptor extends GraphQLPostProcessor implements Gra
         }
         secured
     }
-    
+
 
     @Override
     void doWith(GraphQLInterceptorManager interceptorManager) {
-        interceptorManager.registerInterceptor(this)
-        
+        interceptorManager.registerInterceptor(this)        
     }
 
-    Operation findOperation(Secured annotation, PersistentEntity entity, CheckPointInstructions instructions){
+    Operation findOperation(GqlSecured annotation, PersistentEntity entity, CheckPointInstructions instructions){
         for(operation in annotation.operations()){
             boolean matchesAnyType = operation.types().find({
                 instructions.checkPoint.subjectName == getEntityConventionName(it,entity)

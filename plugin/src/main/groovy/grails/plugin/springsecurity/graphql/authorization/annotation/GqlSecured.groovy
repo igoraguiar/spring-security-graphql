@@ -7,13 +7,13 @@ import java.lang.annotation.Retention
 import java.lang.annotation.RetentionPolicy
 import java.lang.annotation.Target
 
-@Target([ElementType.METHOD, ElementType.TYPE])
+@Target([ ElementType.FIELD, ElementType.METHOD, ElementType.TYPE ])
 @Retention(RetentionPolicy.RUNTIME)
 @Inherited
 @Documented
-@interface Secured {
+@interface GqlSecured {
     String[] value() default []
-    Class<?> closure() default Secured
+    Class<?> closure() default GqlSecured
     
     Operation[] operations() default []    
 }
