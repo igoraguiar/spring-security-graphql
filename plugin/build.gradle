@@ -34,5 +34,5 @@ dependencies {
 }
 
 compileGsonViews {
-    packageName = "gorm-graphql"
+    packageName = "spring-security-graphql"
 }

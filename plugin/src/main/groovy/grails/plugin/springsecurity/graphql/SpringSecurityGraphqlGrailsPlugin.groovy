@@ -1,17 +1,24 @@
 package grails.plugin.springsecurity.graphql
 
 import grails.plugin.springsecurity.SpringSecurityUtils
-import grails.plugin.springsecurity.graphql.authentication.GraphQLAuthenticationSuccessRenderer
-import grails.plugin.springsecurity.graphql.authentication.GraphQLSecurityAuthenticationHandler
-import grails.plugin.springsecurity.graphql.authentication.GraphQLSecurityLoginHandler
-import grails.plugin.springsecurity.graphql.authentication.GraphQLSecurityRefreshTokenHandler
-import grails.plugin.springsecurity.graphql.credentials.GraphQLEnvironmentCredentialsExtractor
+import grails.plugin.springsecurity.graphql.authentication.DefaultAccessTokenType
+import grails.plugin.springsecurity.graphql.authentication.DefaultAuthenticationInterceptor
+import grails.plugin.springsecurity.graphql.authentication.DefaultLoginHandler
+import grails.plugin.springsecurity.graphql.authentication.DefaultReloginHandler
+import grails.plugin.springsecurity.graphql.authorization.DefaultGuard
+import grails.plugin.springsecurity.graphql.authorization.GuardInstructions
+import grails.plugin.springsecurity.graphql.authorization.access.expression.GraphQLExpressionHandler
+import grails.plugin.springsecurity.graphql.authorization.voters.GraphQLClosureVoter
+import grails.plugin.springsecurity.graphql.authorization.voters.GraphQLWebExpressionVoter
 import grails.plugins.Plugin
 
 class SpringSecurityGraphqlGrailsPlugin extends Plugin {
 
     // the version or versions of Grails the plugin is designed for
     def grailsVersion = "3.3.0 > *"
+    
+    List loadAfter = ['springSecurityCore']
+    
     // resources that are excluded from plugin packaging
     def pluginExcludes = [
         "grails-app/views/error.gsp"
@@ -46,87 +53,130 @@ Brief summary/description of the plugin.
     // Online location of the plugin's browseable source code.
 //    def scm = [ url: "http://svn.codehaus.org/grails-plugins/" ]
 
-    Closure doWithSpring() { {->
-        def conf = SpringSecurityUtils.securityConfig
-        if (!conf || !conf.active) {
-            return
-        }
+    Closure doWithSpring() {
+        { ->
+            def conf = SpringSecurityUtils.securityConfig
+            if (!conf || !conf.active) {
+                return
+            }
 
-        SpringSecurityUtils.loadSecondaryConfig 'DefaultGraphQLSecurityConfig'
-        conf = SpringSecurityUtils.securityConfig
-        
-        if (!conf.graphql.active) {
-            return
-        }
+            SpringSecurityUtils.loadSecondaryConfig 'DefaultGraphQLSecurityConfig'
+            conf = SpringSecurityUtils.securityConfig
+
+            if (!conf.graphql.active) {
+                return
+            }
+
+            // Todo: merge some props from spring-security-rest in graphQL config 
+            // for example: usernamePropertyName
+
+
+            boolean printStatusMessages = (conf.printStatusMessages instanceof Boolean) ? conf.printStatusMessages : true
+
+            if (printStatusMessages) {
+                println "\nConfiguring Spring Security GraphQL ${plugin.version}..."
+            }
+
+            if(conf.graphql.authorization.active){
                 
-        // Todo: merge some props from spring-security-rest in graphQL config 
-        // for example: usernamePropertyName
-        
-        
+                //===== Setup voters 
+                // Add the graphQL voters to springsecurity
+                
+                graphqlClosureVoter(GraphQLClosureVoter)
 
-        boolean printStatusMessages = (conf.printStatusMessages instanceof Boolean) ? conf.printStatusMessages : true
+                graphqlExpressionHandler(GraphQLExpressionHandler) {
+                    expressionParser = ref('voterExpressionParser')
+                    permissionEvaluator = ref('permissionEvaluator')
+                    roleHierarchy = ref('roleHierarchy')
+                    trustResolver = ref('authenticationTrustResolver')
+                }
 
-        if (printStatusMessages) {
-            println "\nConfiguring Spring Security GraphQL ${plugin.version}..."
+                graphqlWebExpressionVoter(GraphQLWebExpressionVoter){
+                    expressionHandler = ref('graphqlExpressionHandler')
+                }
+
+                SpringSecurityUtils.registerVoter'graphqlClosureVoter'
+                SpringSecurityUtils.registerVoter'graphqlWebExpressionVoter'
+                
+                graphqlSecurityInstructions(GuardInstructions)
+                
+                graphqlSecurityGuard(DefaultGuard){
+                    instructions = ref('graphqlSecurityInstructions')
+                    accessDecisionManager = ref('accessDecisionManager')
+                }
+                graphQLSecurityAuthorization(AuthorizationSchemaInterceptor){
+                    guard = ref('graphqlSecurityGuard')
+                    instructionsManual = ref('graphqlSecurityInstructions')
+                    entityNamingConvention = ref('graphQLEntityNamingConvention')
+                }
+            }
+            
+            if(conf.graphql.authentication.active){
+                graphQLSecurityAccessTokenType(DefaultAccessTokenType) {
+                    typeManager = ref('graphQLTypeManager')
+                    useBearerToken = conf.graphql.authentication.useBearerToken
+                    objectName = conf.graphql.authentication.schema.accessTokenObjectName
+                    usernamePropertyName = conf.graphql.authentication.schema.accessTokenUsernamePropertyName
+                    authoritiesPropertyName = conf.graphql.authentication.schema.accessTokenAuthoritiesPropertyName
+                }
+
+                graphQLSecurityLoginHandler(DefaultLoginHandler) {
+                    accessTokenType = ref('graphQLSecurityAccessTokenType')
+                    typeManager = ref('graphQLTypeManager')
+
+                    authenticationDetailsSource = ref('authenticationDetailsSource')
+                    authenticationManager = ref('authenticationManager')
+                    tokenGenerator = ref('tokenGenerator')
+                    tokenStorageService = ref('tokenStorageService')
+
+                    fieldName = conf.graphql.authentication.schema.loginFieldName
+                    fieldDescription = conf.graphql.authentication.schema.loginFieldDescription
+                    usernamePropertyName = conf.graphql.authentication.schema.loginUsernamePropertyName
+                    passwordPropertyName = conf.graphql.authentication.schema.loginPasswordPropertyName
+
+                }
+                graphQLSecurityReloginHandler(DefaultReloginHandler) {
+                    accessTokenType = ref('graphQLSecurityAccessTokenType')
+                    typeManager = ref('graphQLTypeManager')
+
+                    tokenGenerator = ref('tokenGenerator')
+                    tokenStorageService = ref('tokenStorageService')
+
+
+                    fieldName = conf.graphql.authentication.schema.reloginFieldName
+                    fieldDescription = conf.graphql.authentication.schema.reloginFieldDescription
+                    tokenPropertyName = conf.graphql.authentication.schema.reloginTokenPropertyName
+                    tokenPropertyDescription = conf.graphql.authentication.schema.reloginTokenDescription
+                }
+
+                graphQLSecurityQueryInterceptor(DefaultAuthenticationInterceptor) {
+                    fieldName = conf.graphql.authentication.schema.queryFieldName
+                    fieldDescription = conf.graphql.authentication.schema.queryFieldDescription
+                    objectName = conf.graphql.authentication.schema.queryObjectName
+                    objectDescription = conf.graphql.authentication.schema.queryObjectDescription
+
+                    typeManager = ref('graphQLTypeManager')
+                    restAuthenticationProvider = ref('restAuthenticationProvider')
+                }
+                graphQLSecurityMutationInterceptor(DefaultAuthenticationInterceptor) {
+                    fieldName = conf.graphql.authentication.schema.mutationFieldName
+                    fieldDescription = conf.graphql.authentication.schema.mutationFieldDescription
+                    objectName = conf.graphql.authentication.schema.mutationObjectName
+                    objectDescription = conf.graphql.authentication.schema.mutationObjectDescription
+
+                    typeManager = ref('graphQLTypeManager')
+                    restAuthenticationProvider = ref('restAuthenticationProvider')
+                }
+                graphQLSecurityAuthenticationSchemaHook(AuthenticationSchemaInterceptor) {
+                    queryInterceptor = ref('graphQLSecurityQueryInterceptor')
+                    mutationInterceptor = ref('graphQLSecurityMutationInterceptor')
+
+                    loginHandler = ref('graphQLSecurityLoginHandler')
+                    reloginHandler = ref('graphQLSecurityReloginHandler')
+                }                
+            }
         }
-
-        ///*
-//        SpringSecurityUtils.registerProvider 'graphQLAuthenticationProvider'
-
-        graphQLSecurityManager(GraphQLSecurityManager)
-        
-        
-        graphQLSecurityAuthenticationHandler(GraphQLSecurityAuthenticationHandler)
-        graphQLSecurityCredentialsExtractor(GraphQLEnvironmentCredentialsExtractor)
-        
-        graphQLAuthenticationSuccessRenderer(GraphQLAuthenticationSuccessRenderer){
-            usernamePropertyName = conf.graphql.authentication.schema.usernamePropertyName
-            tokenPropertyName = conf.graphql.authentication.schema.tokenPropertyName
-            authoritiesPropertyName = conf.graphql.authentication.schema.authoritiesPropertyName
-            useBearerToken = conf.graphql.authentication.validation.useBearerToken
-        }
-        
-        graphQLSecurityLoginHandler(GraphQLSecurityLoginHandler){
-            credentialsExtractor = ref('graphQLSecurityCredentialsExtractor')
-            authenticationDetailsSource = ref('authenticationDetailsSource')
-            authenticationManager = ref('authenticationManager')
-            tokenGenerator = ref('tokenGenerator')
-            tokenStorageService = ref('tokenStorageService')
-
-            authenticationSuccessRenderer = ref('graphQLAuthenticationSuccessRenderer')
-        }
-        graphQLSecurityRefreshTokenHandler(GraphQLSecurityRefreshTokenHandler)
-        
-//        graphQLSecurityReloginHandler(GraphQLSecurityAuthenticationHandler)
-        
-        graphQLSecurityAuthorizationSchemaHook(GraphQLSecurityAuthorizationSchemaHook){
-            securityManager = ref('graphQLSecurityManager')
-            entityNamingConvention = ref('graphQLEntityNamingConvention')
-        }
-        graphQLSecurityAuthenticationSchemaHook(GraphQLSecurityAuthenticationSchemaHook){
-            securityManager = ref('graphQLSecurityManager')
-            entityNamingConvention = ref('graphQLEntityNamingConvention')
-            typeManager = ref('graphQLTypeManager')
-            authenticationHandler = ref('graphQLSecurityAuthenticationHandler')
-            loginHandler = ref('graphQLSecurityLoginHandler')
-            refreshTokenHandler = ref('graphQLSecurityRefreshTokenHandler')
-
-            queryAuthenticationFieldPropertyName = conf.graphql.authentication.schema.queryAuthenticationFieldPropertyName
-            queryAuthenticationObjectName = conf.graphql.authentication.schema.queryAuthenticationObjectName
-
-            mutationAuthenticationFieldPropertyName = conf.graphql.authentication.schema.mutationAuthenticationFieldPropertyName
-            mutationAuthenticationObjectName = conf.graphql.authentication.schema.mutationAuthenticationObjectName
-
-            tokenPropertyName = conf.graphql.authentication.schema.tokenPropertyName
-            usernamePropertyName = conf.graphql.authentication.schema.usernamePropertyName
-            passwordPropertyName = conf.graphql.authentication.schema.passwordPropertyName
-
-            loginFieldPropertyName = conf.graphql.authentication.schema.loginFieldPropertyName
-            refreshTokenFieldPropertyname = conf.graphql.authentication.schema.refreshTokenFieldPropertyname
-            accessTokenObjectname = conf.graphql.authentication.schema.accessTokenObjectname
-            useBearerToken = conf.graphql.authentication.validation.useBearerToken
-        }
-    }}
+    }
 
     void doWithDynamicMethods() {
         // TODO Implement registering dynamic methods to classes (optional)

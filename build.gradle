@@ -53,7 +53,7 @@ subprojects {
     }
 
     if(project.name.endsWith('docs')) {
-//        apply from:"${commonBuild}/common-docs.gradle"
+        apply from:"${commonBuild}/common-docs.gradle"
         return
     }
 
